@@ -7,3 +7,6 @@ conda install pytorch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 pytorch-cuda=
 ```
 git submodule add https://github.com/yangchris11/samurai.git
 ```
+```
+conda create --name bit --file requirements_conda
+```
