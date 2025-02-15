@@ -1,3 +1,4 @@
+#Author - Shrikar Nakhye
 #!/usr/bin/env python3
 
 import rospy
@@ -7,36 +8,37 @@ import numpy as np
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
+from geometry_msgs.msg import Twist
 
 class PersonTracker:
     def __init__(self):
-        rospy.init_node('person_tracker_node')
+        rospy.init_node('person_follow')
         
-        # Initialize MediaPipe
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose()
         
-        # Constants
         self.FRAME_WIDTH = 640
         self.CENTER_THRESHOLD = 100
-        self.DEPTH_THRESHOLD_NEAR = 800  # in mm
-        self.DEPTH_THRESHOLD_FAR = 2000  # in mm
-        self.MOVEMENT_THRESHOLD = 50  # mm for depth movement detection
+        self.DEPTH_THRESHOLD_NEAR = 800  
+        self.DEPTH_THRESHOLD_FAR = 2000  
+        self.MOVEMENT_THRESHOLD = 50  
+        self.speed = 0.02
+        self.angular_speed = 0.5
         
-        # Initialize state variables
+        self.current_distance = None
+        
         self.last_depth = None
         self.latest_depth_image = None
-        
-        # Initialize the CvBridge
         self.bridge = CvBridge()
         
-        # Create publishers for lateral and distance movements
+        # Publishers for lateral and distance movements
         self.lateral_pub = rospy.Publisher('person_tracking/lateral_movement', String, queue_size=1)
         self.distance_pub = rospy.Publisher('person_tracking/distance_movement', String, queue_size=1)
         
+        self.velocity_pub = rospy.Publisher('/hsrb/command_velocity', Twist, queue_size=1)
         # Subscribe to the camera feeds
-        self.image_sub = rospy.Subscriber('/camera/rgb/image_raw', Image, self.rgb_callback)
-        self.depth_sub = rospy.Subscriber('/camera/depth/image_raw', Image, self.depth_callback)
+        self.image_sub = rospy.Subscriber('/hsrb/head_rgbd_sensor/rgb/image_raw', Image, self.rgb_callback)
+        self.depth_sub = rospy.Subscriber('/hsrb/head_rgbd_sensor/depth_registered/rectified_points', Image, self.depth_callback)
         
         rospy.loginfo("Person Tracker Node initialized")
 
@@ -77,6 +79,36 @@ class PersonTracker:
         else:
             return "MOVING_CLOSER", depth_diff
 
+    def move_left(self):
+        twist = Twist()
+        twist.linear.x = self.speed
+        twist.angular.z = -self.angular_speed
+        self.velocity_pub.publish(twist)
+        rospy.loginfo("Moving Left")
+        twist.linear.x = 0
+        twist.angular.z = 0
+        self.velocity_pub.publish(twist)
+    
+    def move_right(self):
+        twist = Twist()
+        twist.linear.x = self.speed
+        twist.angular.z = self.angular_speed
+        self.velocity_pub.publish(twist)
+        rospy.loginfo("Moving Right")
+
+        twist.linear.x = 0
+        twist.angular.z = 0
+        self.velocity_pub.publish(twist)
+        
+    def move_straight(self):
+        twist = Twist()
+        twist.linear.x = self.speed
+        self.velocity_pub.publish(twist)
+        rospy.loginfo("Moving straight")
+        twist.linear.x = 0
+        twist.angular.z = 0
+        self.velocity_pub.publish(twist)
+    
     def rgb_callback(self, msg):
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
@@ -90,18 +122,17 @@ class PersonTracker:
                 x = int(nose.x * self.FRAME_WIDTH)
                 y = int(nose.y * frame.shape[0])
                 
-                # Draw circle on nose position
-                cv2.circle(frame, (x, y), 10, (0, 255, 0), -1)
-                
                 # Lateral movement detection
                 center_x = self.FRAME_WIDTH // 2
                 if x < center_x - self.CENTER_THRESHOLD:
                     lateral_movement = "LEFT"
+                    self.move_left()
                 elif x > center_x + self.CENTER_THRESHOLD:
                     lateral_movement = "RIGHT"
+                    self.move_right()
                 else:
                     lateral_movement = "CENTER"
-                
+                    self.move_straight()
                 # Publish lateral movement
                 self.lateral_pub.publish(lateral_movement)
                 
@@ -110,37 +141,16 @@ class PersonTracker:
                     depth = self.get_depth_at_point(self.latest_depth_image, x, y)
                     if depth is not None:
                         z_movement, _ = self.determine_z_movement(depth)
-                        
-                        # Publish distance movement
                         self.distance_pub.publish(z_movement)
-                        
-                        # Draw information on frame
-                        cv2.putText(frame, f"Distance: {depth:.0f}mm", (10, 30),
-                                  cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                        cv2.putText(frame, f"Lateral: {lateral_movement}", (10, 60),
-                                  cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                        cv2.putText(frame, f"Z-Movement: {z_movement}", (10, 90),
-                                  cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             else:
                 # If no person detected, publish "NO_PERSON" for both movements
                 self.lateral_pub.publish("NO_PERSON")
                 self.distance_pub.publish("NO_PERSON")
-            
-            # Display the frames
-            cv2.imshow("Person Tracking", frame)
-            
-            if self.latest_depth_image is not None:
-                depth_colormap = cv2.normalize(self.latest_depth_image, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-                depth_colormap = cv2.applyColorMap(depth_colormap, cv2.COLORMAP_JET)
-                cv2.imshow("Depth View", depth_colormap)
-            
-            cv2.waitKey(1)
-            
+        
         except Exception as e:
             rospy.logerr(f"Error processing RGB frame: {str(e)}")
 
     def shutdown_hook(self):
-        cv2.destroyAllWindows()
         rospy.loginfo("Shutting down Person Tracker Node")
 
 if __name__ == '__main__':
