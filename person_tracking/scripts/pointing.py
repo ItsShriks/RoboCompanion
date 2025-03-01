@@ -1,6 +1,7 @@
 from ultralytics import YOLO
 import cv2
 import numpy as np
+#import rospy
 
 # Load the YOLO models
 pose_model = YOLO("yolov8n-pose.pt")  # For pose detection
@@ -155,7 +156,16 @@ def capture_webcam():
                 bx1, by1, bx2, by2 = bottles[i]
                 cv2.rectangle(display_frame, (bx1, by1), (bx2, by2), (0, 255, 0), 3)
                 cv2.putText(display_frame, "POINTED", (bx1, by1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
+                center_x = (bx1 + bx2) // 2
+                center_y = (by1 + by2) // 2
+                print(f"Pointed at bottle x={center_x}, y={center_y}")
+                focal_length = 600
+                bottle_height = 30
+                detected_height = by2 - by1
+                if detected_height > 0:
+                    distance = (focal_length * bottle_height) / detected_height
+                    print(f"Distance to bottle: {distance:.2f} cm")
+            
         # Display the frame
         cv2.imshow('Pose Detection & Bottle Pointing', display_frame)
         
@@ -258,6 +268,6 @@ def line_segments_intersect(p1, p2, p3, p4):
         return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
     
     return ccw(p1, p3, p4) != ccw(p2, p3, p4) and ccw(p1, p2, p3) != ccw(p1, p2, p4)
-
+    
 if __name__ == "__main__":
     capture_webcam()
