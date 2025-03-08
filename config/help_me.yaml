@@ -1,0 +1,152 @@
+# Description: Defines a state machine for a simple pick and place scenario (picking an object and placing it back on the same surface)
+# Author: bitbot@home team, ItsShriks
+# Email: zainey4@fmail.com, nakhyeshrikar@icloud.com
+sm_id: german_open_help_me_carry_2025
+states: [GREETING, FOLLOW, REACHED_CAR, PICKUP_BAG]
+# states: [PERCEIVE_SHELF,PLACE_OBJECT]
+outcomes: [DONE, FAILED]
+state_descriptions:
+    # - state:
+    #     name: PERCEIVE_SHELF
+    #     state_module_name: mdr_perception_behaviours.follow_me
+        
+    #     state_class_name: PersonFollow
+    #     transitions:
+    #         - transition:
+    #             name: succeeded
+    #             state: PLACE_OBJECT
+    #         - transition:
+    #             name: failed
+    #             state: PERCEIVE_SHELF
+    #         - transition:
+    #             name: failed_after_retrying
+    #             state: FAILED
+    #     arguments:
+    #         - argument:
+    #             name: number_of_retries
+    #             value: 3
+    
+    # - state:
+    #     name: PERCEIVE_SHELF
+    #     state_module_name: mas_hsr_store_groceries.scenario_states.scan_shelf
+    #     state_class_name: ScanShelf
+    #     transitions:
+    #         - transition:
+    #             name: succeeded
+    #             state: PLACE_OBJECT
+    #         - transition:
+    #             name: failed
+    #             state: PERCEIVE_SHELF
+    #     arguments:
+    #         - argument:
+    #             name: arm_joints
+    #             value:
+    #                 arm_lift_joint: 0.3
+    #                 arm_roll_joint: 1.57
+    #                 wrist_flex_joint: -1.57
+    # - state:
+    #     name: PLACE_OBJECT
+    #     state_module_name: mdr_manipulation_behaviours.place
+    #     state_class_name: Place
+    #     transitions:
+    #         - transition:
+    #             name: succeeded
+    #             state: DONE
+    #         - transition:
+    #             name: failed
+    #             state: PLACE_OBJECT
+    #         - transition:
+    #             name: failed_after_retrying
+    #             state: FAILED
+    #     arguments:
+    #         - argument:
+    #             name: number_of_retries
+    #             value: 3
+    #         - argument:
+    #             name: placing_surface_prefix
+    #             value: table
+    - state:
+        name: GREETING
+        state_module_name: mdr_perception_behaviours.greeting
+        state_class_name: Greeting
+        transitions:
+            - transition:
+                name: succeeded
+                state: FOLLOW
+            - transition:
+                name: failed
+                state: GREETING
+            - transition:
+                name: failed_after_retrying
+                state: FAILED
+        arguments:
+            - argument:
+                name: number_of_retries
+                value: 3
+
+    - state:
+        name: FOLLOW
+        state_module_name: mdr_perception_behaviours.follow_me
+        state_class_name: PersonFollow
+        transitions:
+            - transition:
+                name: succeeded
+                state: DONE
+            - transition:
+                name: failed
+                state: FOLLOW
+            - transition:
+                name: failed_after_retrying
+                state: FAILED
+        arguments:
+            - argument:
+                name: number_of_retries
+                value: 3
+    
+    # - state:
+    #     name: REACHED_CAR
+    #     state_module_name: mdr_navigation_behaviours.pointing
+    #     state_class_name: Pointing
+    #     transitions:
+    #         - transition:
+    #             name: succeeded
+    #             state: BAG_SELECT
+    #         - transition:
+    #             name: failed
+    #             state: REACHED_CAR
+    #         - transition:
+    #             name: failed_after_retrying
+    #             state: FAILED
+    #     arguments:
+    #         - argument:
+    #             name: number_of_retries
+    #             value: 3        
+    
+    # - state:
+    #     name: PICKUP_BAG
+    #     state
+    #     state_module_name: mdr_manipulation_behaviours.pickup
+    #     state_class_name: Pickup
+    #     transitions:
+    #         - transition:
+    #             name: succeeded
+    #             state: DONE
+    #         - transition:
+    #             name: failed
+    #             state: PICKUP_BAG
+    #         - transition:
+    #             name: failed_after_retrying
+    #             state: FAILED
+    # #         - argument:
+    # #             name: plane_prefix
+    # #             value: table
+    # #         - argument:
+    # #             name: plane_say
+    # #             value: shelf
+
+    # #        - argument:
+    # #             name: arm_joints
+    # #             value:
+    # #                 arm_lift_joint: 0.3
+    # #                 arm_roll_joint: 1.57
+    # #                 wrist_flex_joint: -1.57

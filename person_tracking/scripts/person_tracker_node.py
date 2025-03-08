@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Author - https://github.com/ItsShriks
-
 import rospy
+import moveit_commander
+import sys
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -9,8 +10,10 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import Image, PointCloud2, LaserScan
 from sensor_msgs import point_cloud2 as pc2
 from std_msgs.msg import String
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseStamped, Pose, Quaternion, TransformStamped
 from mas_execution_manager.scenario_state_base import ScenarioStateBase
+from moveit_commander import PlanningSceneInterface, MoveGroupIntreface
+from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 
 
 class PersonFollow(ScenarioStateBase):
@@ -23,6 +26,8 @@ class PersonFollow(ScenarioStateBase):
         self.timeout = kwargs.get('timeout', 120.)
         self.number_of_retries = kwargs.get('number_of_retries', 0)
         self.retry_count = 0
+        self.head = moveit_commander.MoveGroupCommander("head")
+
         
         # MediaPipe setup
         self.mp_pose = mp.solutions.pose
@@ -36,7 +41,7 @@ class PersonFollow(ScenarioStateBase):
         self.TARGET_DISTANCE = kwargs.get('target_distance', 1.0)
         self.MOVEMENT_THRESHOLD = kwargs.get('movement_threshold', 50)
         self.speed = kwargs.get('speed', 0.2)
-        self.angular_speed = kwargs.get('angular_speed', 0.06)
+        self.angular_speed = kwargs.get('angular_speed', 0.08)
         self.sleep_speed = kwargs.get('sleep_speed', 5.0)
         
         # State variables
@@ -59,7 +64,23 @@ class PersonFollow(ScenarioStateBase):
         self.laser_sub = None
         
         rospy.loginfo("Person Follow State initialized")
+    
+    def move_base_vel(self, vx, vy, vw):
+        twist = Twist()
+        twist.linear.x = self.vx
+        twist.linear.y = self.vy
+        twist.angular.z = self.vw / 180.0 * math.pi  # 「度」から「ラジアン」に変換します
+        base_vel_pub.publish(twist)  # 速度指令をパブリッシュします
 
+
+    def move_head_tilt(self, v):
+        self.head.set_joint_value_target("head_tilt_joint", v)
+        return self.head.go()
+    
+    def move_head_pan(self, v):
+        self.head.set_joint_value_target("head_pan_joint", v)
+        return self.head.go()
+    
     def depth_callback(self, msg):
         try:
             point_cloud = list(pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True))
@@ -152,6 +173,7 @@ class PersonFollow(ScenarioStateBase):
                 
                 self.lateral_pub.publish(movement_direction)
                 
+                
                 if self.latest_depth_image is not None:
                     depth = self.get_depth_at_point(self.latest_depth_image, x, y)
                     if depth is not None:
@@ -169,8 +191,9 @@ class PersonFollow(ScenarioStateBase):
                             self.stop_movement()
 
                         # Check if target distance is reached (with a small tolerance)
-                        if abs(depth - self.TARGET_DISTANCE) < 0.1:
+                        if abs(depth - self.TARGET_DISTANCE) < 0.4:
                             rospy.loginfo("Target distance reached!")
+                            self.say("Do you want me to still follow you, or should i pick up the bag ?")
                             self.target_reached = True
                 
                 filename = "./person_tracker.png"
@@ -194,46 +217,70 @@ class PersonFollow(ScenarioStateBase):
 
         rospy.loginfo(f"Closest object at distance {min_range} meters, angle: {min_angle} radians")
         
-        if min_range < 0.3:
-            rospy.logwarn("Object is too close! Stopping the robot.")
-            self.stop_movement()
-
+        while True:
+            if min_range < 0.3:
+                rospy.logwarn("Object is too close! Stopping the robot.")
+                self.say("Object is too close !")
+                self.stop_movement()
+                
+                self.say("Obstacle detected, waiting for obstacle to pass")
+                rospy.sleep(5.0)
+                break  # exit the loop after handling the obstacle
     def move_left(self, speed):
-        twist = Twist()
-        twist.angular.z = self.angular_speed
-        self.velocity_pub.publish(twist)
+        self.move_base_vel(0, speed, 0)
         rospy.loginfo("Moving Left")
-    
-    def move_right(self, speed):
-        twist = Twist()
-        twist.angular.z = -self.angular_speed
-        self.velocity_pub.publish(twist)
-        rospy.loginfo("Moving Right")
-    
-    def move_straight(self, speed):
-        twist = Twist()
-        twist.linear.x = self.speed
-        self.velocity_pub.publish(twist)
-        rospy.loginfo("Moving Straight")
-    
-    def move_forward(self, speed):
-        twist = Twist()
-        twist.linear.x = self.speed
-        self.velocity_pub.publish(twist)
-        rospy.loginfo("Moving Forward")
-    
-    def move_back(self, speed):
-        twist = Twist()
-        twist.linear.x = -self.speed
-        self.velocity_pub.publish(twist)
-        rospy.loginfo("Moving Back")
 
+    def move_right(self, speed):
+        self.move_base_vel(0, -speed, 0)
+        rospy.loginfo("Moving Right")
+
+    def move_straight(self, speed):
+        self.move_base_vel(speed, 0, 0)
+        rospy.loginfo("Moving Straight")
     def stop_movement(self):
-        twist = Twist()
-        twist.linear.x = 0
-        twist.angular.z = 0
-        self.velocity_pub.publish(twist)
+        self.move_base_vel(0, 0, 0)
         rospy.loginfo("Stopping")
+    
+    # def move_left(self, speed):
+    #     # Tilt the head to the left (you can adjust the tilt angle as needed)
+        
+    #     twist = Twist()
+    #     twist.angular.z = self.angular_speed
+    #     self.velocity_pub.publish(twist)
+    #     rospy.loginfo("Moving Left")
+
+    # def move_right(self, speed):
+    #     # Tilt the head to the right (you can adjust the tilt angle as needed)
+        
+    #     twist = Twist()
+    #     twist.angular.z = -self.angular_speed
+    #     self.velocity_pub.publish(twist)
+    #     rospy.loginfo("Moving Right")
+    
+    # def move_straight(self, speed):
+    #     twist = Twist()
+    #     twist.linear.x = self.speed
+    #     self.velocity_pub.publish(twist)
+    #     rospy.loginfo("Moving Straight")
+    
+    # def move_forward(self, speed):
+    #     twist = Twist()
+    #     twist.linear.x = self.speed
+    #     self.velocity_pub.publish(twist)
+    #     rospy.loginfo("Moving Forward")
+    
+    # def move_back(self, speed):
+    #     twist = Twist()
+    #     twist.linear.x = -self.speed
+    #     self.velocity_pub.publish(twist)
+    #     rospy.loginfo("Moving Back")
+
+    # def stop_movement(self):
+    #     twist = Twist()
+    #     twist.linear.x = 0
+    #     twist.angular.z = 0
+    #     self.velocity_pub.publish(twist)
+    #     rospy.loginfo("Stopping")
 
     def setup_subscribers(self):
         """Set up subscribers - called during execute to avoid premature callbacks"""
@@ -299,9 +346,6 @@ class PersonFollow(ScenarioStateBase):
             # Check if person is not detected for too long
             if not self.person_detected and self.retry_count == 0:
                 # Person not detected, but we'll give it some time
-                self.say('Looking for person')
-                rospy.sleep(2.0)
-                
                 if not self.person_detected:
                     self.retry_count += 1
                     rospy.loginfo(f"Person not detected, retrying ({self.retry_count})")
