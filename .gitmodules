@@ -1,3 +1,6 @@
 [submodule "samurai"]
 	path = samurai
 	url = https://github.com/yangchris11/samurai.git
+[submodule "tmc_wrs_docker"]
+	path = tmc_wrs_docker
+	url = https://github.com/hsr-project/tmc_wrs_docker.git

@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
-# Author - https://github.com/ItsShriks
 
 import rospy
-import math
-import mediapipe as mp
 import cv2
+import mediapipe as mp
 import numpy as np
-import moveit_commander
 from cv_bridge import CvBridge
-from sensor_msgs.msg import Image, PointCloud2, LaserScan
+from sensor_msgs.msg import Image
 from std_msgs.msg import String
-from geometry_msgs.msg import Twist
 from mas_execution_manager.scenario_state_base import ScenarioStateBase
-from moveit_commander import PlanningSceneInterface
-from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
+import moveit_commander
 
 class Greeting(ScenarioStateBase):
     def __init__(self, save_sm_state=False, **kwargs):
@@ -25,122 +20,164 @@ class Greeting(ScenarioStateBase):
         self.timeout = kwargs.get('timeout', 120.)
         self.number_of_retries = kwargs.get('number_of_retries', 0)
         self.retry_count = 0
+        
+        # Initialize MoveIt for head control
         self.head = moveit_commander.MoveGroupCommander("head")
-        self.bridge = CvBridge()
-        self.image_sub = rospy.Subscriber('/hsrb/head_rgbd_sensor/rgb/image_raw', Image, self.rgb_callback)
-        #self.depth_sub = rospy.Subscriber('/hsrb/head_rgbd_sensor/depth/image_raw', Image, self.depth_callback)
-        self.head = moveit_commander.MoveGroupCommander('head')
         
+        # Initialize CV bridge and mediapipe pose detection
+        self.bridge = CvBridge()
         self.mp_pose = mp.solutions.pose
-        self.pose = self.mp_pose.Pose()
+        self.pose = self.mp_pose.Pose(
+            min_detection_confidence=0.6,
+            min_tracking_confidence=0.5  # Slightly reduced to be more responsive
+        )
         
-        self.FRAME_WIDTH = kwargs.get('frame_width', 640)
+        # Initialize parameters
         self.CENTER_THRESHOLD = kwargs.get('center_threshold', 100)
-        self.DEPTH_THRESHOLD_NEAR = kwargs.get('depth_threshold_near', 800)
-        self.DEPTH_THRESHOLD_FAR = kwargs.get('depth_threshold_far', 2000)                                                        
-        self.TARGET_DISTANCE = kwargs.get('target_distance', 1.0)
-        self.MOVEMENT_THRESHOLD = kwargs.get('movement_threshold', 50)
-        self.speed = kwargs.get('speed', 0.2)
-        self.angular_speed = kwargs.get('angular_speed', 0.08)
-        self.sleep_speed = kwargs.get('sleep_speed', 5.0)
         self.person_detected = False
+        self.greeting_done = False
+        self.detection_start_time = None
+        self.continuous_detection_time = 2.0  # Reduced to 2 seconds for faster response
         
-        self.latest_depth_image = None
-        self.bridge = CvBridge()
-        self.in_motion = False
-        self.target_reached = False
-        self.person_detected = False
+        # Subscribe to the RGB image topic
+        self.image_sub = rospy.Subscriber(
+            '/hsrb/head_rgbd_sensor/rgb/image_raw', 
+            Image, 
+            self.rgb_callback,
+            queue_size=1
+        )
         
-   
+        # Publisher for status updates
+        self.status_pub = rospy.Publisher('greeting_status', String, queue_size=1)
+        
+        rospy.loginfo("Greeting behavior initialized")
+
     def rgb_callback(self, msg):
         try:
+            # Convert ROS Image to OpenCV format
             frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = self.pose.process(rgb_frame)
-                
+            
             if results.pose_landmarks:
-                self.person_detected = True
+                # Person detected
                 h, w, _ = frame.shape
                 landmarks = results.pose_landmarks.landmark
                 
+                # Create bounding box
                 x_coords = [int(landmark.x * w) for landmark in landmarks]
                 y_coords = [int(landmark.y * h) for landmark in landmarks]
-                
                 x_min, x_max = min(x_coords), max(x_coords)
                 y_min, y_max = min(y_coords), max(y_coords)
                 
+                # Draw bounding box
                 cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
                 
+                # Get nose position for tracking
                 nose = landmarks[self.mp_pose.PoseLandmark.NOSE]
                 x = int(nose.x * w)
                 y = int(nose.y * h)
                 
-                # Save person location for state machine
-                self.person_location = {'x': x, 'y': y, 'frame_width': w, 'frame_height': h}                                                                       
+                # Check if person is centered enough
                 center_x = w // 2
-                movement_direction = "CENTER"
-                # if x < center_x - self.CENTER_THRESHOLD:
-                #     movement_direction = "LEFT"
-                #     self.move_left(self.angular_speed)
-                # elif x > center_x + self.CENTER_THRESHOLD:
-                #     movement_direction = "RIGHT"
-                #     self.move_right(self.angular_speed)
-                # else:
-                #     self.stop_movement()
+                is_centered = abs(x - center_x) < self.CENTER_THRESHOLD
                 
-                #self.lateral_pub.publish(movement_direction)
-                if self.latest_depth_image is not None:
-                    depth = self.get_depth_at_point(self.latest_depth_image, x, y)
-                    if depth is not None:
-                        z_movement, _ = self.determine_z_movement(depth)
-                        #self.distance_pub.publish(z_movement)
-                        
-                        # Save current distance for state machine
-                        self.current_distance = depth
-                        
-                        
-                        # Check if target distance is reached (with a small tolerance)        
-                filename = "./person_tracker.png"
-                cv2.imwrite(filename, frame)
+                # Update detection status
+                if not self.person_detected:
+                    if self.detection_start_time is None:
+                        self.detection_start_time = rospy.get_time()
+                        rospy.loginfo("Person initially detected, starting confirmation timer")
+                    elif rospy.get_time() - self.detection_start_time > self.continuous_detection_time:
+                        self.person_detected = True
+                        self.status_pub.publish("PERSON_CONFIRMED")
+                        rospy.loginfo("Person confirmed after continuous detection")
+                        return 'succeeded'
+                
+                # Display status on frame
+                status_text = "CENTERED" if is_centered else "NOT_CENTERED"
+                cv2.putText(frame, status_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                
+                # Save debug image
+                # filename = "/tmp/person_greeting.png"
+                # cv2.imwrite(filename, frame)
             else:
-                self.person_detected = False
+                # No person detected
+                if self.detection_start_time is not None:
+                    rospy.loginfo("Person detection lost")
+                self.detection_start_time = None
+                self.status_pub.publish("NO_PERSON")
+                self.say('I still cannot see you. Please stand directly in front of me.')
+                rospy.sleep(0.5)  # Short pause between sentences
+                
         except Exception as e:
-            rospy.logerr(f"Error processing RGB frame: {str(e)}")
-    def move_head_tilt(self, v):
-        self.head.set_joint_value_target("head_tilt_joint", v)
-        self.head.go()                                                                               
-            rospy.logerr(f"Error processing RGB frame: {str(e)}")
+            rospy.logerr(f"Error in rgb_callback: {str(e)}")
 
-    def move_head_tilt(self, v):
-        self.head.set_joint_value_target("head_tilt_joint", v)
-        self.head.go()
+    def move_head_to_neutral(self):
+        """Position head to look forward at human height"""
+        try:
+            self.head.set_joint_value_target("head_pan_joint", 0)
+            self.head.set_joint_value_target("head_tilt_joint", -0.3)  # Slightly tilted down
+            self.head.go(wait=True)
+        except Exception as e:
+            rospy.logerr(f"Error moving head: {str(e)}")
 
     def execute(self, userdata):
-        self.target_reached = False
+        rospy.loginfo("Starting greeting behavior")
+        
+        # Reset state variables
         self.person_detected = False
-        self.retry_count = 0
-        self.say('Hello, I am ready to Follow you')
-        self.say('Please stand in front of me')
-        #self.say('Detecting a person')
-        #self.setup_subscribers()
-        start_time = rospy.Time.now()
-        rate = rospy.Rate(10)  # 10 Hz
-        while not rospy.is_shutdown():
-            # Check if the timeout has been exceeded
-            if (rospy.Time.now() - start_time).to_sec() > self.timeout:
-                self.say('Timeout reached while following person')
+        self.greeting_done = False
+        self.detection_start_time = None
+        
+        # Move head to neutral position
+        self.move_head_to_neutral()
+        
+        # Start with invitation if no person is detected
+        self.say("Hello, please stand in front of me so I can see you.")
+        
+        # Wait for person detection with timeout
+        start_time = rospy.get_time()
+        detection_wait_rate = rospy.Rate(10)  # 10 Hz
+        
+        while not rospy.is_shutdown() and (rospy.get_time() - start_time) < self.timeout:
+            # Check if person is detected continuously
+            if self.person_detected and not self.greeting_done:
+                rospy.loginfo("Person detected and confirmed")
+                
+                # Greet the person
+                self.say("Hello there! Nice to see you.")
+                rospy.sleep(0.5)  # Short pause between sentences
+                self.say("I'm ready to follow you now. Please walk slowly in front of me.")
+                self.say("I will follow you until you show me your hand to stop.")
+                
+                self.greeting_done = True
+                self.status_pub.publish("GREETING_COMPLETED")
+                return 'succeeded'
+                
+            # If timeout is reached with no person
+            elif (rospy.get_time() - start_time) > self.timeout / 2 and not self.person_detected:
                 if self.retry_count < self.number_of_retries:
-                        self.retry_count += 1
-                        rospy.loginfo(f"Retrying person follow (attempt {self.retry_count})")
-                        return 'failed'
+                    self.retry_count += 1
+                    self.say("I still don't see anyone. Please stand directly in front of me.")
+                    start_time = rospy.get_time()  # Reset timer for another attempt
                 else:
-                    return 'failed_after_retrying'   
-        if self.person_detected == True:
-            self.say('Person Detected')
-            self.move_head_tilt(-0.5)
-            self.move_head_tilt(0.0)
-            #self.clean_up_subscribers()
-            #self.stop_movement()
-            return 'succeeded'
-        else:
+                    rospy.logwarn("Failed to detect person after retries")
+                    return 'failed_after_retrying'
+                    
+            detection_wait_rate.sleep()
+            
+        # If we exit the loop without success
+        if not self.greeting_done:
+            rospy.logwarn("Failed to detect person within timeout")
             return 'failed'
+
+    def clean_up(self):
+        """Clean up resources before shutting down"""
+        try:
+            if self.pose:
+                self.pose.close()
+            if hasattr(self, 'image_sub') and self.image_sub is not None:
+                self.image_sub.unregister()
+            rospy.loginfo("Greeting behavior cleaned up")
+        except Exception as e:
+            rospy.logerr(f"Error during cleanup: {str(e)}")

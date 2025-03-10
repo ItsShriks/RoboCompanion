@@ -12,8 +12,9 @@ from sensor_msgs import point_cloud2 as pc2
 from std_msgs.msg import String
 from geometry_msgs.msg import Twist, PoseStamped, Pose, Quaternion, TransformStamped
 from mas_execution_manager.scenario_state_base import ScenarioStateBase
-from moveit_commander import PlanningSceneInterface, MoveGroupIntreface
+from moveit_commander import PlanningSceneInterface
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
+from stop_confirmation import SpeechRecognitionService as sr
 
 
 class PersonFollow(ScenarioStateBase):
@@ -27,11 +28,15 @@ class PersonFollow(ScenarioStateBase):
         self.number_of_retries = kwargs.get('number_of_retries', 0)
         self.retry_count = 0
         self.head = moveit_commander.MoveGroupCommander("head")
+        self.stop_confirmation = sr()
 
         
         # MediaPipe setup
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose()
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands()
+        
         
         # Configuration parameters (can be overridden through kwargs)
         self.FRAME_WIDTH = kwargs.get('frame_width', 640)
@@ -64,6 +69,10 @@ class PersonFollow(ScenarioStateBase):
         self.laser_sub = None
         
         rospy.loginfo("Person Follow State initialized")
+    def is_stop_gesture(self, landmarks):
+        tips = [self.landmarks.landmark[i] for i in [8, 12, 16, 20]]
+        base = self.landmarks.landmark[0]
+        return all([tip.y > base.y for tip in tips])
     
     def move_base_vel(self, vx, vy, vw):
         twist = Twist()
@@ -75,12 +84,12 @@ class PersonFollow(ScenarioStateBase):
 
     def move_head_tilt(self, v):
         self.head.set_joint_value_target("head_tilt_joint", v)
-        return self.head.go()
+        self.head.go()
     
-    def move_head_pan(self, v):
-        self.head.set_joint_value_target("head_pan_joint", v)
-        return self.head.go()
-    
+        def move_head_pan(self, v):
+            self.head.set_joint_value_target("head_pan_joint", v)
+            return self.head.go()
+        
     def depth_callback(self, msg):
         try:
             point_cloud = list(pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True))
@@ -138,7 +147,16 @@ class PersonFollow(ScenarioStateBase):
             frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = self.pose.process(rgb_frame)
-                
+            results_hands = self.hands.process(rgb_frame)
+            
+            if results_hands.multi_hand_landmarks:
+                for hand_landmarks in results_hands.multi_hand_landmarks:
+                    if self.is_stop_gesture(hand_landmarks):##
+                        confirmed = self.stop_confirmation.get_and_confirm_input(initial_prompt="Do you want me to stop?")##
+                        self.say("Stop gesture detected, stopping the robot")
+                        return 'succeeded'
+                    else:
+                        pass
             if results.pose_landmarks:
                 self.person_detected = True
                 h, w, _ = frame.shape
@@ -227,60 +245,45 @@ class PersonFollow(ScenarioStateBase):
                 rospy.sleep(5.0)
                 break  # exit the loop after handling the obstacle
     def move_left(self, speed):
-        self.move_base_vel(0, speed, 0)
+        # Tilt the head to the left (you can adjust the tilt angle as needed)
+        
+        twist = Twist()
+        twist.angular.z = self.angular_speed
+        self.velocity_pub.publish(twist)
         rospy.loginfo("Moving Left")
 
     def move_right(self, speed):
-        self.move_base_vel(0, -speed, 0)
+        # Tilt the head to the right (you can adjust the tilt angle as needed)
+        
+        twist = Twist()
+        twist.angular.z = -self.angular_speed
+        self.velocity_pub.publish(twist)
         rospy.loginfo("Moving Right")
-
+    
     def move_straight(self, speed):
-        self.move_base_vel(speed, 0, 0)
+        twist = Twist()
+        twist.linear.x = self.speed
+        self.velocity_pub.publish(twist)
         rospy.loginfo("Moving Straight")
+    
+    def move_forward(self, speed):
+        twist = Twist()
+        twist.linear.x = self.speed
+        self.velocity_pub.publish(twist)
+        rospy.loginfo("Moving Forward")
+    
+    def move_back(self, speed):
+        twist = Twist()
+        twist.linear.x = -self.speed
+        self.velocity_pub.publish(twist)
+        rospy.loginfo("Moving Back")
+
     def stop_movement(self):
-        self.move_base_vel(0, 0, 0)
+        twist = Twist()
+        twist.linear.x = 0
+        twist.angular.z = 0
+        self.velocity_pub.publish(twist)
         rospy.loginfo("Stopping")
-    
-    # def move_left(self, speed):
-    #     # Tilt the head to the left (you can adjust the tilt angle as needed)
-        
-    #     twist = Twist()
-    #     twist.angular.z = self.angular_speed
-    #     self.velocity_pub.publish(twist)
-    #     rospy.loginfo("Moving Left")
-
-    # def move_right(self, speed):
-    #     # Tilt the head to the right (you can adjust the tilt angle as needed)
-        
-    #     twist = Twist()
-    #     twist.angular.z = -self.angular_speed
-    #     self.velocity_pub.publish(twist)
-    #     rospy.loginfo("Moving Right")
-    
-    # def move_straight(self, speed):
-    #     twist = Twist()
-    #     twist.linear.x = self.speed
-    #     self.velocity_pub.publish(twist)
-    #     rospy.loginfo("Moving Straight")
-    
-    # def move_forward(self, speed):
-    #     twist = Twist()
-    #     twist.linear.x = self.speed
-    #     self.velocity_pub.publish(twist)
-    #     rospy.loginfo("Moving Forward")
-    
-    # def move_back(self, speed):
-    #     twist = Twist()
-    #     twist.linear.x = -self.speed
-    #     self.velocity_pub.publish(twist)
-    #     rospy.loginfo("Moving Back")
-
-    # def stop_movement(self):
-    #     twist = Twist()
-    #     twist.linear.x = 0
-    #     twist.angular.z = 0
-    #     self.velocity_pub.publish(twist)
-    #     rospy.loginfo("Stopping")
 
     def setup_subscribers(self):
         """Set up subscribers - called during execute to avoid premature callbacks"""
@@ -346,6 +349,13 @@ class PersonFollow(ScenarioStateBase):
             # Check if person is not detected for too long
             if not self.person_detected and self.retry_count == 0:
                 # Person not detected, but we'll give it some time
+                
+                self.say('Looking for person')
+                
+                rospy.sleep(10.0)
+                self.move_head_tilt(0)
+                rospy.sleep(2.0)
+                
                 if not self.person_detected:
                     self.retry_count += 1
                     rospy.loginfo(f"Person not detected, retrying ({self.retry_count})")
