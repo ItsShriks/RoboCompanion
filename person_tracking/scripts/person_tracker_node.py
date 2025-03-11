@@ -181,6 +181,7 @@ class PersonFollow(ScenarioStateBase):
                     if self.is_stop_gesture(hand_landmarks):##
                         confirmed = self.stop_confirmation.get_and_confirm_input(initial_prompt="Do you want me to stop?")##
                         self.say("Stop gesture detected, stopping the robot")
+                        self.say("Do you want me to still follow you, or should i pick up the bag ?")
                         return 'succeeded'
                     else:
                         pass
@@ -236,10 +237,10 @@ class PersonFollow(ScenarioStateBase):
                             self.stop_movement()
 
                         # Check if target distance is reached (with a small tolerance)
-                        if abs(depth - self.TARGET_DISTANCE) < 0.4:
-                            rospy.loginfo("Target distance reached!")
-                            self.say("Do you want me to still follow you, or should i pick up the bag ?")
-                            self.target_reached = True
+                        # if abs(depth - self.TARGET_DISTANCE) < 0.4:
+                        #     rospy.loginfo("Target distance reached!")
+                        #     self.say("Do you want me to still follow you, or should i pick up the bag ?")
+                        #     self.target_reached = True
                 
                 filename = "./person_tracker.png"
                 cv2.imwrite(filename, frame)
@@ -338,6 +339,8 @@ class PersonFollow(ScenarioStateBase):
         self.person_location = None
         
         self.say('Following person')
+        rospy.sleep('Please show your palm if you want to pick up the bag')
+        
         
         # Setup subscribers for callbacks
         self.setup_subscribers()
@@ -367,12 +370,9 @@ class PersonFollow(ScenarioStateBase):
                 self.stop_movement()
                 
                 # Set output keys
-                if self.person_location:
-                    userdata.person_location = self.person_location
-                
-                return 'succeeded'
-            
-            
+                # if self.person_location:
+                #     userdata.person_location = self.person_location    
+                # return 'succeeded'
             
             # Check if person is not detected for too long
             if not self.person_detected and self.retry_count == 0:

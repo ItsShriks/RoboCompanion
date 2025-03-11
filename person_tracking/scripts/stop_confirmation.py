@@ -147,8 +147,7 @@ class SpeechRecognitionService:
                     self.say_this(failed_validation_msg)
             else:
                 self.say_this(not_heard_msg)
-
-            # rospy.sleep(2) 
+            rospy.sleep(2) 
 
         rospy.loginfo(f"[{self.instance_id}] Max attempts ({max_attempts}) reached without success")
         return None
