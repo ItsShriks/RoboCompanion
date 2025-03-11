@@ -58,10 +58,16 @@ class PersonFollow(ScenarioStateBase):
         self.target_reached = False
         self.person_detected = False
         
+        self.current_position = None
+        self.current_orientation = None
+        self.current_velocity = None
+
+        
         # Publishers
         self.lateral_pub = rospy.Publisher('person_tracking/lateral_movement', String, queue_size=1)
         self.distance_pub = rospy.Publisher('person_tracking/distance_movement', String, queue_size=1)
         self.velocity_pub = rospy.Publisher('/hsrb/command_velocity', Twist, queue_size=1)
+        
         
         # Subscribers setup occurs during execution to avoid premature callbacks
         self.image_sub = None
@@ -73,6 +79,27 @@ class PersonFollow(ScenarioStateBase):
         tips = [self.landmarks.landmark[i] for i in [8, 12, 16, 20]]
         base = self.landmarks.landmark[0]
         return all([tip.y > base.y for tip in tips])
+    
+    def odom_callback(self, msg):
+        self.current_position = msg.pose.pose.position
+        orientation_q = msg.pose.pose.orientation
+        quaternion = (orientation_q.x, orientation_q.y, quaternion.z, quaternion.w)
+        euler = tf_trans.euler_from_quaternion(quaternion)
+        self.current_orientation = euler  # (roll, pitch, yaw)
+        
+        self.current_velocity = msg.twist.twist.linear
+
+        rospy.loginfo(f"Odometry - Position: ({self.current_position.x}, {self.current_position.y}, {self.current_position.z})")
+        rospy.loginfo(f"Odometry - Orientation (Yaw): {self.current_orientation[2]}")
+        rospy.loginfo(f"Odometry - Velocity: ({self.current_velocity.x}, {self.current_velocity.y}, {self.current_velocity.z})")
+
+    def get_odometry(self):
+        """Returns the current odometry data as a dictionary."""
+        return {
+            "position": self.current_position,
+            "orientation": self.current_orientation,
+            "velocity": self.current_velocity
+        }
     
     def move_base_vel(self, vx, vy, vw):
         twist = Twist()
@@ -290,6 +317,7 @@ class PersonFollow(ScenarioStateBase):
         self.image_sub = rospy.Subscriber('/hsrb/head_rgbd_sensor/rgb/image_raw', Image, self.rgb_callback)
         self.depth_sub = rospy.Subscriber('/hsrb/head_rgbd_sensor/depth/image_raw', Image, self.depth_callback)
         self.laser_sub = rospy.Subscriber('/hsrb/base_scan', LaserScan, self.laser_scan_callback)
+        self.odom_sub = rospy.Subscriber('/hsrb/odom', Odometry, self.odom_callback)
         
     def clean_up_subscribers(self):
         """Clean up subscribers to avoid callback when state is not active"""
