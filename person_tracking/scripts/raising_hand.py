@@ -1,11 +1,11 @@
-from ultralytics import YOLO
 import cv2
 import numpy as np
 import rospy
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
 import sensor_msgs.point_cloud2 as pc2
-from sensor_msgs.msg import PointCloud2
+
+from ultralytics import YOLO
+from sensor_msgs.msg import Image, PointCloud2
+from cv_bridge import CvBridge
 
 class HandRaiseDetector:
     def __init__(self):
@@ -23,6 +23,8 @@ class HandRaiseDetector:
         rospy.Subscriber("/camera/depth/image_raw", Image, self.depth_callback)
         rospy.Subscriber("/camera/depth/points", PointCloud2, self.point_cloud_callback)
         
+        self.image_pub = rospy.Publisher("/raised_hand_image", Image, queue_size=10)
+
 
         rospy.loginfo("HandRaiseDetector Node Initialized")
         self.run()
@@ -104,6 +106,13 @@ class HandRaiseDetector:
                 y_max = max(y_max, y)
 
         return int(x_min), int(y_min), int(x_max), int(y_max)
+    def is_new_bounding_box(self, x_min, y_min, x_max, y_max):
+        """Check if the bounding box is new by comparing with previously detected boxes."""
+        for (prev_x_min, prev_y_min, prev_x_max, prev_y_max) in self.detected_bboxes:
+            # Check for overlap by using a simple threshold
+            if not (x_max < prev_x_min or x_min > prev_x_max or y_max < prev_y_min or y_min > prev_y_max):
+                return False  # If there's overlap, return False (it's not a new bounding box)
+        return True  # No overlap, return True (it's a new bounding box)
 
     def run(self):
         """Runs the hand-raising detection loop using ROS image topics."""
@@ -151,6 +160,15 @@ class HandRaiseDetector:
                                 movement_status, depth_diff = self.determine_z_movement(depth_value) if depth_value else ("UNKNOWN", 0)
                                 
                                 if hand_raised:
+                                    x_min, y_min, x_max, y_max = self.calculate_bounding_box(person_keypoints)
+                                    if self.is_new_bounding_box(x_min, y_min, x_max, y_max):
+                                        # Draw bounding box
+                                        cv2.rectangle(display_frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+                                        self.detected_bboxes.append((x_min, y_min, x_max, y_max))
+                                    
+                                    print(f"Bounding Box for Hand-Raising Person: (x_min: {x_min}, y_min: {y_min}, x_max: {x_max}, y_max: {y_max})")
+                                    cv2.rectangle(display_frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+
                                     triangle_top = (nose[0], nose[1] - 50)
                                     triangle_left = (nose[0] - 15, nose[1] - 20)
                                     triangle_right = (nose[0] + 15, nose[1] - 20)
@@ -164,7 +182,13 @@ class HandRaiseDetector:
                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                                     
                                     rospy.loginfo(f"Person detected with raised hand: Nose {tuple(nose)}, Depth: {depth_value}, Movement: {movement_status}")
-
+            try:
+                ros_image = self.bridge.cv2_to_imgmsg(display_frame, "bgr8")
+                ros_image.header.stamp = rospy.Time.now()
+                self.image_pub.publish(ros_image)
+            except Exception as e:
+                rospy.logerr(f"Error publishing image: {str(e)}")
+                
             cv2.imshow('Hand Raising Detection', display_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break

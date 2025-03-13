@@ -121,40 +121,18 @@ class HeadFollow:
             rospy.logwarn("Object is too close! Stopping the robot.")
             self.stop_movement()
 
-    # def move_left(self):
-    #     self.move_head_pan(-0.2)
-    #     rospy.loginfo("Moving Left")
-    
-    # def move_right(self):
-    #     self.move_head_pan(0.2)
-    #     rospy.loginfo("Moving Right")
-    
-    # def stop_movement(self):
-    #     self.move_head_pan(0)
-    #     rospy.loginfo("Stopping")
-    
-    def move_left(self, speed):
-        # Tilt the head to the left (you can adjust the tilt angle as needed)
-        
-        twist = Twist()
-        twist.angular.z = self.angular_speed
-        self.velocity_pub.publish(twist)
+    def move_left(self):
+        self.move_head_pan(-0.2)
         rospy.loginfo("Moving Left")
-
-    def move_right(self, speed):
-        # Tilt the head to the right (you can adjust the tilt angle as needed)
-        
-        twist = Twist()
-        twist.angular.z = -self.angular_speed
-        self.velocity_pub.publish(twist)
+    
+    def move_right(self):
+        self.move_head_pan(0.2)
         rospy.loginfo("Moving Right")
     
     def stop_movement(self):
-        twist = Twist()
-        twist.linear.x = 0
-        twist.angular.z = 0
-        self.velocity_pub.publish(twist)
+        self.move_head_pan(0)
         rospy.loginfo("Stopping")
+    
 
     def shutdown_hook(self):
         rospy.loginfo("Shutting down Head Follow Node")
