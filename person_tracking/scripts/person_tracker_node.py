@@ -30,7 +30,16 @@ class PersonFollow(ScenarioStateBase):
         self.head = moveit_commander.MoveGroupCommander("head")
         self.stop_confirmation = sr()
 
+        self.bridge = CvBridge()
+        self.image_sub = rospy.Subscriber('/hsrb/head_rgbd_sensor/rgb/image_raw', Image, self.rgb_callback)
+        self.depth_sub = rospy.Subscriber('/hsrb/head_rgbd_sensor/depth/image_raw', Image, self.depth_callback)
+        self.laser_sub = rospy.Subscriber('/hsrb/base_scan', LaserScan, self.laser_scan_callback)
+        self.odom_sub = rospy.Subscriber('/hsrb/odom', Odometry, self.odom_callback)
         
+        self.lateral_pub = rospy.Publisher('person_tracking/lateral_movement', String, queue_size=1)
+        self.distance_pub = rospy.Publisher('person_tracking/distance_movement', String, queue_size=1)
+        self.velocity_pub = rospy.Publisher('/hsrb/command_velocity', Twist, queue_size=1)
+
         # MediaPipe setup
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose()
@@ -58,17 +67,15 @@ class PersonFollow(ScenarioStateBase):
         self.target_reached = False
         self.person_detected = False
         
+        self.reid_model = torchreid.models.build_model(name='osnet_x1_0', num_classes=1, pretrained=True)
+        self.reid_model.eval().to(self.device)
+        
+        self.known_person_embeddings = None
+    
         self.current_position = None
         self.current_orientation = None
         self.current_velocity = None
 
-        
-        # Publishers
-        self.lateral_pub = rospy.Publisher('person_tracking/lateral_movement', String, queue_size=1)
-        self.distance_pub = rospy.Publisher('person_tracking/distance_movement', String, queue_size=1)
-        self.velocity_pub = rospy.Publisher('/hsrb/command_velocity', Twist, queue_size=1)
-        
-        
         # Subscribers setup occurs during execution to avoid premature callbacks
         self.image_sub = None
         self.depth_sub = None 

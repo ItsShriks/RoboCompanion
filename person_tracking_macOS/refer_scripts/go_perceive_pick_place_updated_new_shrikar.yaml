@@ -1,0 +1,31 @@
+# Description: Defines a state machine for a RoboCup@Home store groceries scenario
+# Author: Alex Mitrevski
+# Email: aleksandar.mitrevski@h-brs.de
+sm_id: mdr_store_groceries
+# states: [DOOR_DETECTION,GO_INSIDE,GO_TO_TABLE, SCAN_CUPBOARD,PERCEIVE_TABLE, PICK_OBJECT,FIND_OBJECTS_BEFORE_PICKING, GO_TO_CUPBOARD, PERCEIVE_SHELF, PLACE_OBJECT, GO_BACK_TO_TABLE, CHECK_EMPTY_TABLE, PICK_OBJECT1]
+# states: [SCAN_CUPBOARD,PERCEIVE_TABLE, PICK_OBJECT,FIND_OBJECTS_BEFORE_PICKING,PERCEIVE_SHELF, PLACE_OBJECT, CHECK_EMPTY_TABLE, PICK_OBJECT1, GO_TO_CUPBOARD, GO_TO_TABLE]
+# states: [PERCEIVE_TABLE, PICK_OBJECT, GO_TO_TABLE, PERCEIVE_TABLE_AGAIN, PLACE_OBJECT, FIND_OBJECTS_BEFORE_PICKING, GO_TO_TABLE_AGAIN]
+states: [FOLLOW_PERSON]
+
+outcomes: [DONE, TIMEOUT, FAILED]
+state_descriptions:
+
+    - state:
+        name: FOLLOW_PERSON
+        state_module_name: mdr_perception_behaviours.perceive_planes
+        state_class_name: PerceivePlanes
+        transitions:
+            - transition:
+                name: succeeded
+                state: DONE
+            - transition:
+                name: failed
+                state: FOLLOW_PERSON
+            - transition:
+                name: failed_after_retrying
+                state: FAILED
+        arguments:
+            - argument:
+                name: number_of_retries
+                value: 3
+    

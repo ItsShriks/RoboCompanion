@@ -1,0 +1,145 @@
+# Description: Defines a state machine for Help Me Carry task
+# Author: Lucy Team
+sm_id: help_me_carry_demo
+states:
+  [
+    INIT,
+    FOLLOW_PERSON,
+    DETECT_BAG,
+    PICK_BAG,
+    NAVIGATE_BACK,
+    JOIN_QUEUE
+  ]
+outcomes: [SUCCEEDED, FAILED]
+state_descriptions:
+  - state:
+      name: INIT
+      state_module_name: mdr_hri_behaviours.init_state
+      state_class_name: InitState
+      transitions:
+        - transition:
+            name: succeeded
+            state: FOLLOW_PERSON
+        - transition:
+            name: failed
+            state: FAILED
+      arguments:
+        - argument:
+            name: init_timeout
+            value: 5.0
+
+  - state:
+      name: FOLLOW_PERSON
+      state_module_name: mdr_navigation_behaviours.follow_person
+      state_class_name: FollowPersonState
+      transitions:
+        - transition:
+            name: reached_car
+            state: DETECT_BAG
+        - transition:
+            name: lost_person
+            state: FOLLOW_PERSON
+        - transition:
+            name: failed_after_retrying
+            state: FAILED
+      arguments:
+        - argument:
+            name: number_of_retries
+            value: 3
+        - argument:
+            name: timeout
+            value: 300.0
+        - argument:
+            name: following_distance
+            value: 1.2
+
+  - state:
+      name: DETECT_BAG
+      state_module_name: mdr_perception_behaviours.detect_bag
+      state_class_name: DetectBagState
+      transitions:
+        - transition:
+            name: succeeded
+            state: PICK_BAG
+        - transition:
+            name: failed
+            state: DETECT_BAG
+        - transition:
+            name: failed_after_retrying
+            state: FAILED
+      arguments:
+        - argument:
+            name: number_of_retries
+            value: 3
+        - argument:
+            name: detection_timeout
+            value: 60.0
+
+  - state:
+      name: PICK_BAG
+      state_module_name: mdr_manipulation_behaviours.pick_bag
+      state_class_name: PickBag
+      transitions:
+        - transition:
+            name: succeeded
+            state: NAVIGATE_BACK
+        - transition:
+            name: failed
+            state: PICK_BAG
+        - transition:
+            name: failed_after_retrying
+            state: FAILED
+      arguments:
+        - argument:
+            name: number_of_retries
+            value: 3
+        - argument:
+            name: grasp_timeout
+            value: 60.0
+
+  - state:
+      name: NAVIGATE_BACK
+      state_module_name: mdr_navigation_behaviours.move_base
+      state_class_name: MoveBase
+      transitions:
+        - transition:
+            name: succeeded
+            state: JOIN_QUEUE
+        - transition:
+            name: failed
+            state: NAVIGATE_BACK
+        - transition:
+            name: failed_after_retrying
+            state: FAILED
+      arguments:
+        - argument:
+            name: number_of_retries
+            value: 3
+        - argument:
+            name: destination_locations
+            value: [start_location]
+
+  - state:
+      name: JOIN_QUEUE
+      state_module_name: mdr_navigation_behaviours.join_queue
+      state_class_name: JoinQueueState
+      transitions:
+        - transition:
+            name: succeeded
+            state: SUCCEEDED
+        - transition:
+            name: failed
+            state: NAVIGATE_BACK
+        - transition:
+            name: failed_after_retrying
+            state: FAILED
+      arguments:
+        - argument:
+            name: number_of_retries
+            value: 3
+        - argument:
+            name: queue_distance
+            value: 1.0
+        - argument:
+            name: queue_timeout
+            value: 120.0
