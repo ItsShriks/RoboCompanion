@@ -29,6 +29,8 @@ class PersonFollow(ScenarioStateBase):
         self.retry_count = 0
         self.head = moveit_commander.MoveGroupCommander("head")
         self.stop_confirmation = sr()
+        
+        self.bounding_box = None
 
         self.bridge = CvBridge()
         self.image_sub = rospy.Subscriber('/hsrb/head_rgbd_sensor/rgb/image_raw', Image, self.rgb_callback)
@@ -335,6 +337,10 @@ class PersonFollow(ScenarioStateBase):
             self.depth_sub.unregister()
         if self.laser_sub:
             self.laser_sub.unregister()
+    
+    def update_bounding_box(x_min, y_min, x_max, y_max):
+        global bounding_box
+        bounding_box = (x_min, y_min, x_max, y_max)
             
     def execute(self, userdata):
         """Main state execution method called by the state machine"""
